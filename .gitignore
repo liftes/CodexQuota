@@ -1,0 +1,16 @@
+/Release/
+/artifacts/
+/obj/
+/bin/
+/dist/
+/.vs/
+/_Backups/
+/tests/*.exe
+/tests/*.pdb
+*.user
+*.suo
+*.log
+/probe*.json
+/settings*.json
+/preview*.png
+/settings-preview*.png

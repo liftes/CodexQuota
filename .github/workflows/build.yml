@@ -1,0 +1,38 @@
+name: Build and test
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile and run verification
+        run: .\Build.ps1 -RunTests
+      - name: Package portable application
+        run: .\Package.ps1 -SkipBuild
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: CodexQuota-win-x64-${{ github.sha }}
+          path: |
+            dist/*-win-x64.zip
+            dist/CodexQuota.exe
+            dist/CodexQuota.exe.config
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

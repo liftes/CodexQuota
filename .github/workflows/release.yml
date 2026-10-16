@@ -1,0 +1,83 @@
+name: Prepare draft release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile and run verification
+        run: .\Build.ps1 -RunTests
+      - name: Verify tag matches executable version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version_ = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $PWD 'Release\CodexQuota.exe'))
+          $expectedTag_ = 'v{0}.{1}.{2}' -f $version_.FileMajorPart, $version_.FileMinorPart, $version_.FileBuildPart
+          if ($env:RELEASE_TAG -cne $expectedTag_) {
+              throw "Tag '$env:RELEASE_TAG' must match binary version '$expectedTag_'."
+          }
+      - name: Package portable application
+        run: .\Package.ps1 -SkipBuild
+      - name: Retain release assets for inspection
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: CodexQuota-${{ github.ref_name }}-win-x64
+          path: |
+            dist/*-win-x64.zip
+            dist/CodexQuota.exe
+            dist/CodexQuota.exe.config
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Create draft release with downloadable binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assets_ = @(
+              (Join-Path $PWD ('dist\CodexQuota-{0}-win-x64.zip' -f $env:RELEASE_TAG)),
+              (Join-Path $PWD 'dist\CodexQuota.exe'),
+              (Join-Path $PWD 'dist\CodexQuota.exe.config'),
+              (Join-Path $PWD 'dist\SHA256SUMS.txt')
+          )
+          foreach ($asset_ in $assets_) {
+              if (-not (Test-Path -LiteralPath $asset_ -PathType Leaf)) { throw "Missing release asset: $asset_" }
+          }
+          $notesPath_ = Join-Path $env:RUNNER_TEMP 'CodexQuota-release-notes.md'
+          $notes_ = @(
+              'Windows 11 x64 portable release.',
+              '',
+              'Download the win-x64 ZIP, extract it, and run CodexQuota.exe. Keep CodexQuota.exe.config beside the executable.',
+              '',
+              'The standalone EXE and config are also attached. SHA256SUMS.txt contains SHA-256 checksums.',
+              '',
+              'Requires .NET Framework 4.8 and a separately installed, authenticated Codex CLI.',
+              '',
+              'See README.md, CHANGELOG.md and docs/INSTALLATION.md in the tagged source for details.'
+          )
+          [IO.File]::WriteAllLines($notesPath_, $notes_, (New-Object Text.UTF8Encoding($false)))
+          & gh release create $env:RELEASE_TAG @assets_ --draft --verify-tag --title "CodexQuota $env:RELEASE_TAG" --notes-file $notesPath_
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed. Check the CLI output and any existing release for this tag.' }

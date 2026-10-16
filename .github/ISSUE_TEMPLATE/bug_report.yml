@@ -1,0 +1,38 @@
+name: 报告问题
+description: 提交可复现的界面、额度读取或安装问题。
+body:
+  - type: markdown
+    attributes:
+      value: 请先遮挡邮箱、账户信息、私人路径及配额数据。不要上传登录令牌、auth.json 或完整私有日志。
+  - type: input
+    id: version
+    attributes:
+      label: 软件版本
+      placeholder: v0.7.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows 与任务栏环境
+      description: Windows 版本、缩放比例、任务栏位置，以及是否使用任务栏修改软件。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 按什么步骤能够看到问题？
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期与实际表现
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: 补充信息或脱敏截图
+      description: 额度读取问题请提供 Codex CLI 版本、错误摘要与安装方式，无需提供登录文件。
