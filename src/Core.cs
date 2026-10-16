@@ -143,10 +143,12 @@ namespace CodexQuota
 
     public sealed class CodexRpcClient : IDisposable
     {
+        private static readonly object inputEncodingLock = new object();
         private readonly ConcurrentDictionary<int, TaskCompletionSource<string>> pending = new ConcurrentDictionary<int, TaskCompletionSource<string>>();
         private readonly object writeLock = new object();
         private readonly SemaphoreSlim initializeLock = new SemaphoreSlim(1, 1);
         private Process process;
+        private StreamWriter inputWriter;
         private int nextId;
         private bool initialized;
         private volatile bool disposed;
@@ -167,13 +169,29 @@ namespace CodexQuota
             try
             {
                 process = new Process { StartInfo = startInfo_ };
-                if (!process.Start()) throw new InvalidOperationException();
-                process.StandardInput.AutoFlush = true;
+                // Framework creates and auto-flushes its stdin writer inside Start(),
+                // before StandardInput can be accessed. Suppress any inherited BOM there.
+                lock (inputEncodingLock)
+                {
+                    var originalEncoding_ = Console.InputEncoding;
+                    bool changeEncoding_ = originalEncoding_.GetPreamble().Length != 0;
+                    try
+                    {
+                        if (changeEncoding_) Console.InputEncoding = new UTF8Encoding(false);
+                        if (!process.Start()) throw new InvalidOperationException();
+                    }
+                    finally { if (changeEncoding_) Console.InputEncoding = originalEncoding_; }
+                }
+                // Framework StandardInput inherits the console encoding and may emit a BOM.
+                // JSONL must use explicit UTF-8 without a preamble, independent of the host.
+                inputWriter = new StreamWriter(process.StandardInput.BaseStream, new UTF8Encoding(false));
+                inputWriter.AutoFlush = true;
                 Task.Run((Func<Task>)ReadLoopAsync);
                 Task.Run((Func<Task>)DrainErrorsAsync);
             }
             catch
             {
+                if (inputWriter != null) { try { inputWriter.Dispose(); } catch { } inputWriter = null; }
                 if (process != null) { process.Dispose(); process = null; }
                 throw new InvalidOperationException("Could not start the Codex connection.");
             }
@@ -255,7 +273,7 @@ namespace CodexQuota
                 try
                 {
                     if (process.HasExited) throw new IOException();
-                    process.StandardInput.WriteLine(new JavaScriptSerializer().Serialize(message));
+                    inputWriter.WriteLine(new JavaScriptSerializer().Serialize(message));
                 }
                 catch { throw new IOException("The Codex connection is unavailable."); }
             }
@@ -321,7 +339,7 @@ namespace CodexQuota
                 FailPending("The Codex connection was closed.");
                 if (process != null)
                 {
-                    try { process.StandardInput.Close(); } catch { }
+                    try { if (inputWriter != null) inputWriter.Close(); } catch { }
                     try { if (!process.HasExited) process.Kill(); } catch { }
                     process.Dispose();
                 }

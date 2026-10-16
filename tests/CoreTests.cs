@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using CodexQuota;
@@ -86,16 +88,28 @@ internal static class CoreTests
 
     private static async Task TestRpcAsync()
     {
+        var originalEncoding_ = Console.InputEncoding;
+        try
+        {
+            // Reproduce UTF-8 Windows runners; the pipe must not inherit their BOM.
+            Console.InputEncoding = new UTF8Encoding(true);
+            await VerifyRpcAsync();
+        }
+        finally { Console.InputEncoding = originalEncoding_; }
+    }
+
+    private static async Task VerifyRpcAsync()
+    {
         using (var client_ = new CodexRpcClient())
         {
             client_.Start(Process.GetCurrentProcess().MainModule.FileName);
             var snapshot_ = await client_.ReadQuotaAsync();
             Check(snapshot_.FiveHour.RemainingPercent == 75 && snapshot_.Weekly == null, "RPC handshake and quota read.");
             Check(snapshot_.AccountLabel == "t***@example.invalid" && snapshot_.PlanType == "pro", "Account label masked and account plan fallback.");
-            var first_ = client_.CallAsync("test/echo", new { value = "first" }, 3000);
+            var first_ = client_.CallAsync("test/echo", new { value = "first-中文-λ" }, 3000);
             var second_ = client_.CallAsync("test/echo", new { value = "second" }, 3000);
             await Task.WhenAll(first_, second_);
-            Check(first_.Result.Contains("first") && second_.Result.Contains("second"), "Out-of-order replies correlate by request ID.");
+            Check(first_.Result.Contains("first-中文-λ") && second_.Result.Contains("second"), "UTF-8 out-of-order replies correlate by request ID.");
             try { await client_.CallAsync("test/error", new { }, 3000); throw new Exception("RPC error accepted."); }
             catch (InvalidOperationException exception_)
             {
@@ -119,10 +133,14 @@ internal static class CoreTests
     {
         // This isolated child process simulates JSONL transport and never runs Codex or reads credentials.
         Console.Error.WriteLine(new string('x', 100000));
+        var input_ = Console.OpenStandardInput();
+        if (input_.ReadByte() != '{') return 2; // Reject BOMs before the first JSON object.
+        var reader_ = new StreamReader(input_, new UTF8Encoding(false), false);
+        var writer_ = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
         var serializer_ = new JavaScriptSerializer();
         IDictionary<string, object> held_ = null;
-        string line_;
-        while ((line_ = Console.ReadLine()) != null)
+        string line_ = "{" + reader_.ReadLine();
+        do
         {
             var request_ = serializer_.DeserializeObject(line_) as IDictionary<string, object>;
             var method_ = request_["method"] as string;
@@ -135,20 +153,20 @@ internal static class CoreTests
             else if (method_ == "test/echo")
             {
                 if (held_ == null) { held_ = request_; continue; }
-                Console.WriteLine(serializer_.Serialize(new { id = id_, result = request_["params"] }));
-                Console.WriteLine(serializer_.Serialize(new { id = held_["id"], result = held_["params"] }));
+                writer_.WriteLine(serializer_.Serialize(new { id = id_, result = request_["params"] }));
+                writer_.WriteLine(serializer_.Serialize(new { id = held_["id"], result = held_["params"] }));
                 held_ = null;
                 continue;
             }
             else if (method_ == "test/error")
             {
-                Console.WriteLine(serializer_.Serialize(new { id = id_, error = new { code = -32000, message = "private-secret" } }));
+                writer_.WriteLine(serializer_.Serialize(new { id = id_, error = new { code = -32000, message = "private-secret" } }));
                 continue;
             }
             else if (method_ == "test/never") continue;
             else if (method_ == "test/exit") return 0;
-            Console.WriteLine(serializer_.Serialize(new { id = id_, result = result_ }));
-        }
+            writer_.WriteLine(serializer_.Serialize(new { id = id_, result = result_ }));
+        } while ((line_ = reader_.ReadLine()) != null);
         return 0;
     }
 }
