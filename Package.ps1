@@ -1,16 +1,17 @@
 [CmdletBinding()]
 param(
-    [ValidateNotNullOrEmpty()][string]$OutputDirectory = (Join-Path $PSScriptRoot 'dist'),
+    [string]$OutputDirectory,
     [switch]$SkipBuild,
     [switch]$RunTests
 )
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { $OutputDirectory = Join-Path $PSScriptRoot 'dist' }
 if ($SkipBuild -and $RunTests) { throw 'Use -RunTests to build and test, or -SkipBuild to package an existing build.' }
 if (-not $SkipBuild) { & (Join-Path $PSScriptRoot 'Build.ps1') -RunTests:$RunTests }
 $binaryRoot = Join-Path $PSScriptRoot 'Release'
 $executable = Join-Path $binaryRoot 'CodexQuota.exe'
 $configuration = Join-Path $binaryRoot 'CodexQuota.exe.config'
-foreach ($filePath in @($executable,$configuration,(Join-Path $PSScriptRoot 'Install.ps1'))) {
+foreach ($filePath in @($executable,$configuration,(Join-Path $PSScriptRoot 'Install.ps1'),(Join-Path $PSScriptRoot 'LICENSE'))) {
     if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) { throw "Required package file missing: $filePath" }
 }
 $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($executable)
@@ -44,6 +45,12 @@ again in the new location. The installer never changes startup registration.
 To uninstall, turn off startup in Settings, exit the app, then remove its folder.
 Saved preferences remain until you choose to remove them separately.
 No account credentials, settings, screenshots, or diagnostic logs are bundled.
+
+Copyright (C) 2026 CodexQuota contributors.
+Licensed under GNU GPL version 3 only (GPL-3.0-only). See LICENSE.
+This program comes WITHOUT ANY WARRANTY; see the license for details.
+Obtain the corresponding source and build scripts from the matching release tag
+in the GitHub repository linked on the release page.
 "@
 [System.IO.File]::WriteAllText((Join-Path $stageRoot 'README.txt'), $quickStart, (New-Object System.Text.UTF8Encoding($false)))
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'LICENSE') -PathType Leaf) {

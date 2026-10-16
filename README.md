@@ -58,8 +58,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Build.ps1 -RunTests
 - [更新日志](CHANGELOG.md)
 - [贡献说明](CONTRIBUTING.md)
 
+## 支持项目
+
+如果 CodexQuota 对你有帮助，欢迎通过支付宝自愿赞助，支持后续维护与功能改进。赞助与软件使用、功能及许可证授权无关。
+
+<img src="docs/images/sponsor-alipay.jpg" alt="支付宝赞助码（自愿赞助）" width="260">
+
+[查看赞助码原图](docs/images/sponsor-alipay.jpg)
+
 ## 许可证与致谢
 
-许可证尚待作者选择，目前没有授予开源许可证；公开可见不等于获得修改和再分发授权。采用开源许可证后应加入 `LICENSE` 并更新此说明。
+Copyright (C) 2026 CodexQuota contributors.
+
+本项目依据 **GNU General Public License v3.0，仅第 3 版**（`GPL-3.0-only`）授权，完整条款见 [LICENSE](LICENSE)。允许使用、修改及商业用途；分发本项目或修改版时，应遵守 GPLv3 的对应源码提供、版权声明和许可证保留等要求。软件不提供任何担保，具体以许可证条款为准。
 
 任务栏附着思路参考 [TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor)，本项目独立实现，未复制其源码。图标为生成的双圆弧图案，来源见 [assets/README.md](assets/README.md)。Codex 名称及相关商标归各自权利人所有。

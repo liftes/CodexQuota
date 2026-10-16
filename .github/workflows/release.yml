@@ -76,6 +76,10 @@ jobs:
               '',
               'Requires .NET Framework 4.8 and a separately installed, authenticated Codex CLI.',
               '',
+              'Licensed under GNU GPL version 3 only (GPL-3.0-only). The portable ZIP contains LICENSE.',
+              ('Corresponding source and build scripts: https://github.com/{0}/tree/{1}' -f $env:GH_REPO, $env:RELEASE_TAG),
+              'Use the Source code ZIP or tar.gz attached to this release to download the matching source.',
+              '',
               'See README.md, CHANGELOG.md and docs/INSTALLATION.md in the tagged source for details.'
           )
           [IO.File]::WriteAllLines($notesPath_, $notes_, (New-Object Text.UTF8Encoding($false)))
