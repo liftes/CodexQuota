@@ -35,7 +35,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Package.ps1 -RunTests
 
 | 文件 | 用途 |
 | --- | --- |
-| `CodexQuota-v0.7.0-win-x64.zip` | 推荐用户下载的便携发行包 |
+| `CodexQuota-v0.7.1-win-x64.zip` | 推荐用户下载的便携发行包 |
 | `CodexQuota.exe` | 可直接下载的应用程序 |
 | `CodexQuota.exe.config` | 运行配置，建议与 EXE 放在同一目录 |
 | `SHA256SUMS.txt` | 下载文件的 SHA256 校验清单 |

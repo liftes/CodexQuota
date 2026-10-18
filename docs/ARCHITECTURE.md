@@ -29,6 +29,12 @@
 
 参考 [TrafficMonitor 任务栏实现](https://github.com/zhongyang219/TrafficMonitor/blob/930f17533d6098989ebad62f210aa97d75ef174b/TrafficMonitor/TaskBarDlg.cpp) 的附着思路，代码独立实现。接口参考：[SetParent](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent)、[UpdateLayeredWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-updatelayeredwindow)。兼容性仍需不同 Windows 与第三方任务栏环境实机验收。
 
+## 悬浮窗定位
+
+圆环、任务栏和显示器边界均使用物理屏幕像素。水平任务栏的卡片中心对齐当前悬停圆环中心，按任务栏所在边向屏幕内侧弹出；靠近屏幕边缘时优先完整可见。预留间距按任务栏 DPI 计算，卡片 DIP 尺寸则按其自身 `CompositionTarget.TransformToDevice` 转换，不假定两者缩放一致。
+
+WPF `ToolTip` 使用 `PlacementMode.Absolute`，将计算出的物理左上角放入零尺寸 `PlacementRectangle`，两个 Offset 保持为零。避免 `AbsolutePoint` 受 `SystemParameters.MenuDropAlignment` 影响，在部分设备把右上角对到预期左上角、产生整窗宽的水平偏移。弹窗打开后和实际尺寸变化后重新测量，宽度、字号及 DPI 改变不需要关闭重开。实现依据见 [WPF Popup 源码](https://source.dot.net/PresentationFramework/System/Windows/Controls/Primitives/Popup.cs.html) 的 `GetPlacementTargetInterestPoints`、`GetPointCombination`。
+
 ## 状态与隐私
 
 偏好在 `%LOCALAPPDATA%\CodexQuota\settings.json`。自启只在用户操作时写入 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 `CodexQuota` 值，登记当前 EXE 实际路径，不管理其他启动项。没有遥测与远程更新服务。

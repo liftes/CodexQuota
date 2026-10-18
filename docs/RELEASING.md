@@ -61,7 +61,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Package.ps1 -SkipBuild
 
 | 文件 | 用途 |
 | --- | --- |
-| `CodexQuota-v0.7.0-win-x64.zip` | 推荐下载；包含程序、配置及安装说明等运行所需文件 |
+| `CodexQuota-v0.7.1-win-x64.zip` | 推荐下载；包含程序、配置及安装说明等运行所需文件 |
 | `CodexQuota.exe` | 单独的可执行程序 |
 | `CodexQuota.exe.config` | 与 EXE 放在同一目录 |
 | `SHA256SUMS.txt` | 上述发行文件的 SHA-256 校验值 |
@@ -72,13 +72,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Package.ps1 -SkipBuild
 
 `.github/workflows/release.yml` 监听 `v*` 标签。它重新编译、运行测试、验证标签与实际 EXE 版本一致，再上传 ZIP、EXE、配置和校验文件到一个 **Draft release**。它使用 GitHub 给当前仓库提供的 `GITHUB_TOKEN`，不需要个人访问令牌或 Codex 登录信息。
 
-当前 EXE 的完整版本是 `0.7.0.0`，对应标签必须是 `v0.7.0`。`v0.7` 或与实际二进制版本不一致的标签会被拒绝。
+当前 EXE 的完整版本是 `0.7.1.0`，对应标签必须是 `v0.7.1`。`v0.7` 或与实际二进制版本不一致的标签会被拒绝。
 
 准备下一个版本时，先更新 `src/App.cs` 中的程序集版本、`app.manifest` 的版本，以及 `CHANGELOG.md` 和文档中的相关说明。检查、构建并提交全部改动后，再创建和推送标签：
 
 ```powershell
-git tag -a v0.7.0 -m "CodexQuota v0.7.0"
-git push origin v0.7.0
+git tag -a v0.7.1 -m "CodexQuota v0.7.1"
+git push origin v0.7.1
 ```
 
 如果首次源码通过网页上传，可以在本地克隆仓库后运行上面的标签命令。若希望全程使用网页，请采用下一节的手动发布方式；不要同时让手动和自动流程创建同一标签的 Release。
@@ -88,7 +88,7 @@ Actions 成功后，打开 **Releases** 的草稿，检查版本说明，下载 
 校验示例：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\CodexQuota-v0.7.0-win-x64.zip
+Get-FileHash -Algorithm SHA256 .\CodexQuota-v0.7.1-win-x64.zip
 ```
 
 如果仓库规则要求在工作流之外授权写入标签，先由仓库维护者配置规则；本项目不会绕过规则。如果 Actions 提示工作流权限不足，检查仓库及组织是否允许工作流所声明的 `contents: write`，它只用于创建发行草稿和上传资产。

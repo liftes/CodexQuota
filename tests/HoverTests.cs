@@ -1,14 +1,22 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using CodexQuota;
 
 internal static class HoverTests
 {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowBounds { internal int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr window, out WindowBounds bounds);
+
     private static int count;
     private static void Check(bool condition, string message)
     {
@@ -50,6 +58,52 @@ internal static class HoverTests
         double a_ = .2126 * Linear(first_.R) + .7152 * Linear(first_.G) + .0722 * Linear(first_.B);
         double b_ = .2126 * Linear(second_.R) + .7152 * Linear(second_.G) + .0722 * Linear(second_.B);
         return (Math.Max(a_, b_) + .05) / (Math.Min(a_, b_) + .05);
+    }
+
+    private static void CheckActualPlacement(QuotaWindow quota)
+    {
+        // Only change WPF's cache inside this test process. Never modify Windows
+        // handedness, SPI settings or the registry on the machine running tests.
+        bool originalAlignment_ = SystemParameters.MenuDropAlignment;
+        FieldInfo alignment_ = typeof(SystemParameters).GetField("_menuDropAlignment", BindingFlags.Static | BindingFlags.NonPublic);
+        Check(alignment_ != null, "The test can exercise both WPF menu alignments without changing system settings.");
+        System.Drawing.Rectangle monitor_ = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+        Rect screen_ = new Rect(monitor_.Left, monitor_.Top, monitor_.Width, monitor_.Height);
+        try
+        {
+            foreach (bool rightAligned_ in new[] { false, true })
+                foreach (double taskbarScale_ in new[] { 1.0, 1.25, 1.5, 2.0 })
+                {
+                    alignment_.SetValue(null, rightAligned_);
+                    using (QuotaHoverPresenter presenter_ = new QuotaHoverPresenter())
+                    {
+                        presenter_.Popup.Opacity = 0;
+                        double ringSize_ = 20 * taskbarScale_;
+                        Rect ring_ = new Rect(screen_.Left + screen_.Width / 2 - ringSize_ / 2, screen_.Top + 12 * taskbarScale_, ringSize_, ringSize_);
+                        Rect bar_ = new Rect(screen_.Left, screen_.Top, screen_.Width, 48 * taskbarScale_);
+                        presenter_.SetAnchor(ring_, bar_, screen_, taskbarScale_);
+                        presenter_.ShowAfterDelay("周额度", quota, false, ring_.Left, ring_.Top, taskbarScale_);
+                        PumpFor(380);
+                        HwndSource source_ = PresentationSource.FromVisual(presenter_.Popup) as HwndSource;
+                        WindowBounds actual_;
+                        Check(source_ != null && GetWindowRect(source_.Handle, out actual_), "An actual native tooltip window exists for placement verification.");
+                        GetWindowRect(source_.Handle, out actual_);
+                        double center_ = (actual_.Left + actual_.Right) / 2.0;
+                        string context_ = " (right alignment=" + rightAligned_ + ", taskbar scale=" + taskbarScale_ + ")";
+                        Check(Math.Abs(center_ - (ring_.Left + ring_.Width / 2)) <= 1.5,
+                            "Actual tooltip HWND must center on the hovered ring" + context_ + "; actual=" + center_ + ", expected=" + (ring_.Left + ring_.Width / 2));
+                        Check(Math.Abs(actual_.Top - (bar_.Bottom + 8 * taskbarScale_)) <= 1.5,
+                            "Actual tooltip HWND must open below the top taskbar" + context_);
+                        presenter_.SetAppearance(new HoverAppearance { ContentWidth = 420, ValueFontSize = 31 });
+                        PumpFor(40);
+                        GetWindowRect(source_.Handle, out actual_);
+                        Check(Math.Abs((actual_.Left + actual_.Right) / 2.0 - (ring_.Left + ring_.Width / 2)) <= 1.5,
+                            "Live width changes keep the actual tooltip centered" + context_);
+                    }
+                }
+        }
+        finally { alignment_.SetValue(null, originalAlignment_); }
+        Check(SystemParameters.MenuDropAlignment == originalAlignment_, "Restore the process-local WPF menu alignment cache.");
     }
     [STAThread]
     private static int Main()
@@ -152,6 +206,8 @@ internal static class HoverTests
             Rect secondaryBounds_ = QuotaHoverPresenter.ComputePopupBounds(new Rect(-1600, -1070, 24, 24), new Rect(-1920, -1080, 1920, 48), secondaryScreen_, popupSize_, 1);
             Check(secondaryScreen_.Contains(secondaryBounds_) && secondaryBounds_.Top == -1024, "Negative monitor coordinates preserve inward taskbar placement.");
 
+            CheckActualPlacement(quota_);
+
             presenter_ = new QuotaHoverPresenter();
             presenter_.Popup.Opacity = 0;
             presenter_.ShowAfterDelay("五小时额度", quota_, false, 200, 300, 1.5);
@@ -166,14 +222,15 @@ internal static class HoverTests
             presenter_.ShowAfterDelay("五小时额度", quota_, true, 200, 300, 1.5);
             PumpFor(165);
             Check(presenter_.Popup.IsOpen && !presenter_.IsPending, "Same-ring updates do not postpone the initial hover delay.");
-            Check(Math.Abs(presenter_.Popup.HorizontalOffset - (200 / 1.5 - 18)) < .01 && presenter_.Popup.VerticalOffset < 300 / 1.5, "Physical hover position converts to DIPs and positions above the cursor.");
+            Check(presenter_.Popup.HorizontalOffset == 0 && presenter_.Popup.VerticalOffset == 0 && presenter_.Popup.PlacementRectangle.Top < 300,
+                "Fallback hover uses a physical screen origin with no DPI-dependent absolute offsets.");
             Check(Text((FrameworkElement)presenter_.Popup.Content).Contains("数据已过期"), "Pending data updates reach opened content.");
             presenter_.SetAnchor(topRing_, topBar_, screen_);
-            Check(presenter_.Popup.VerticalOffset == 56, "An open card immediately follows its new top-taskbar anchor.");
+            Check(presenter_.Popup.PlacementRectangle.Top == 56, "An open card immediately follows its new top-taskbar anchor.");
             Check(presenter_.Popup.DesiredSize.Width >= 320 && presenter_.Popup.DesiredSize.Width <= 340 && presenter_.Popup.DesiredSize.Height > 100, "Placement measures the compact popup including template padding and border.");
             HoverAppearance liveAppearance_ = new HoverAppearance { TitleFontSize = 15, ValueFontSize = 31, DetailFontSize = 17, ContentWidth = 420 };
             presenter_.SetAppearance(liveAppearance_);
-            Check(presenter_.Popup.IsOpen && !presenter_.IsPending && presenter_.Popup.VerticalOffset == 56, "Live appearance changes remeasure the open popup without restarting delay or changing its anchored side.");
+            Check(presenter_.Popup.IsOpen && !presenter_.IsPending && presenter_.Popup.PlacementRectangle.Top == 56, "Live appearance changes remeasure the open popup without restarting delay or changing its anchored side.");
             double chromeWidth_ = presenter_.Popup.Padding.Left + presenter_.Popup.Padding.Right + presenter_.Popup.BorderThickness.Left + presenter_.Popup.BorderThickness.Right;
             Check(Math.Abs(presenter_.Popup.DesiredSize.Width - (420 + chromeWidth_)) < .01, "Live custom width includes the actual template padding exactly once.");
             liveAppearance_.ValueFontSize = 16;
@@ -185,10 +242,11 @@ internal static class HoverTests
             presenter_.SetAppearance(null);
             Check(Math.Abs(presenter_.Popup.DesiredSize.Width - (300 + chromeWidth_)) < .01, "Null appearance restores compact defaults immediately.");
             presenter_.ShowAfterDelay("五小时额度", quota_, true, 1500, 900);
-            Check(presenter_.Popup.VerticalOffset == 56, "Anchored placement ignores cursor movement over the same ring.");
+            Check(presenter_.Popup.PlacementRectangle.Top == 56, "Anchored placement ignores cursor movement over the same ring.");
             presenter_.SetAnchor(new Rect(100, 10, 24, 24), new Rect(0, 0, 300, 48), tinyScreen_);
             ScrollViewer scroll_ = presenter_.Popup.Content as ScrollViewer;
-            Check(scroll_ != null && scroll_.VerticalScrollBarVisibility == ScrollBarVisibility.Auto && presenter_.Popup.MaxHeight <= 164 && presenter_.Popup.MaxWidth <= 300, "Small-screen cards provide scrolling within the available inward area.");
+            Matrix popupTransform_ = PresentationSource.FromVisual(presenter_.Popup).CompositionTarget.TransformToDevice;
+            Check(scroll_ != null && scroll_.VerticalScrollBarVisibility == ScrollBarVisibility.Auto && presenter_.Popup.MaxHeight * popupTransform_.M22 <= 164.01 && presenter_.Popup.MaxWidth * popupTransform_.M11 <= 300.01, "Small-screen cards provide scrolling within the available inward area at the popup's actual DPI.");
             presenter_.SetAnchor(topRing_, topBar_, screen_);
             foreach (string mode_ in new[] { "Light", "Dark", "Light" })
             {

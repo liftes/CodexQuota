@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace CodexQuota
@@ -20,13 +21,18 @@ namespace CodexQuota
         private Rect ringBounds, taskbarBounds, screenBounds;
         private bool hasAnchor;
         private bool disposed;
+        private bool layoutRefreshPending;
         private HoverAppearance appearance = new HoverAppearance();
         public ToolTip Popup { get; private set; }
         public bool IsPending { get { return pendingLabel != null && showTimer.IsEnabled; } }
 
         public QuotaHoverPresenter()
         {
-            Popup = new ToolTip { Placement = PlacementMode.AbsolutePoint, StaysOpen = true, MaxWidth = 330, Focusable = false };
+            // AbsolutePoint also considers MenuDropAlignment and may align the
+            // popup's RIGHT edge to our left edge on tablet/right-aligned systems.
+            Popup = new ToolTip { Placement = PlacementMode.Absolute, StaysOpen = true, MaxWidth = 330, Focusable = false };
+            Popup.Opened += OnPopupOpened;
+            Popup.SizeChanged += OnPopupSizeChanged;
             Popup.SetResourceReference(Control.BackgroundProperty, "QuotaTooltipSurface");
             Popup.SetResourceReference(Control.ForegroundProperty, "QuotaTooltipText");
             UiTheme.ThemeChanged += OnThemeChanged;
@@ -84,6 +90,7 @@ namespace CodexQuota
 
         private void RefreshContent()
         {
+            Vector popupScale_ = GetPopupScale();
             FrameworkElement content_ = BuildContent(pendingLabel, pendingQuota, pendingStale, DateTimeOffset.UtcNow, appearance);
             // Measure the real tooltip template, including its padding and border.
             // A ScrollViewer keeps enlarged text accessible on unusually small screens.
@@ -92,8 +99,8 @@ namespace CodexQuota
             Popup.ApplyTemplate();
             double horizontalChrome_ = Popup.Padding.Left + Popup.Padding.Right + Popup.BorderThickness.Left + Popup.BorderThickness.Right;
             double desiredWidth_ = appearance.ContentWidth + horizontalChrome_;
-            Popup.MaxWidth = hasAnchor ? Math.Max(1, Math.Min(desiredWidth_, screenBounds.Width / screenScale)) : desiredWidth_;
-            Popup.MaxHeight = hasAnchor ? Math.Max(1, screenBounds.Height / screenScale) : Double.PositiveInfinity;
+            Popup.MaxWidth = hasAnchor ? Math.Max(1, Math.Min(desiredWidth_, screenBounds.Width / popupScale_.X)) : desiredWidth_;
+            Popup.MaxHeight = hasAnchor ? Math.Max(1, screenBounds.Height / popupScale_.Y) : Double.PositiveInfinity;
             content_.Width = Math.Max(1, Math.Min(appearance.ContentWidth, Popup.MaxWidth - horizontalChrome_));
             content_.MaxWidth = content_.Width;
             Popup.Measure(new Size(Popup.MaxWidth, Popup.MaxHeight));
@@ -101,23 +108,61 @@ namespace CodexQuota
             if (hasAnchor)
             {
                 Rect bounds_ = ComputePopupBounds(ringBounds, taskbarBounds, screenBounds,
-                    new Size(measured_.Width * screenScale, measured_.Height * screenScale), screenScale);
-                Popup.MaxWidth = bounds_.Width / screenScale;
-                Popup.MaxHeight = bounds_.Height / screenScale;
+                    new Size(measured_.Width * popupScale_.X, measured_.Height * popupScale_.Y), screenScale);
+                Popup.MaxWidth = bounds_.Width / popupScale_.X;
+                Popup.MaxHeight = bounds_.Height / popupScale_.Y;
                 // A vertical scrollbar takes a small part of the available text width.
                 content_.Width = Math.Max(1, Math.Min(appearance.ContentWidth, Popup.MaxWidth - horizontalChrome_ - (measured_.Height > Popup.MaxHeight ? SystemParameters.VerticalScrollBarWidth : 0)));
                 content_.MaxWidth = content_.Width;
                 Popup.Measure(new Size(Popup.MaxWidth, Popup.MaxHeight));
                 bounds_ = ComputePopupBounds(ringBounds, taskbarBounds, screenBounds,
-                    new Size(Popup.DesiredSize.Width * screenScale, Popup.DesiredSize.Height * screenScale), screenScale);
-                Popup.HorizontalOffset = bounds_.Left / screenScale;
-                Popup.VerticalOffset = bounds_.Top / screenScale;
+                    new Size(Popup.DesiredSize.Width * popupScale_.X, Popup.DesiredSize.Height * popupScale_.Y), screenScale);
+                SetPhysicalOrigin(bounds_.Left, bounds_.Top);
             }
             else
             {
-                Popup.HorizontalOffset = screenX / screenScale - 18;
-                Popup.VerticalOffset = screenY / screenScale - measured_.Height - 8;
+                SetPhysicalOrigin(screenX - 18 * popupScale_.X, screenY - (measured_.Height + 8) * popupScale_.Y);
             }
+        }
+
+        private Vector GetPopupScale()
+        {
+            // The native taskbar and WPF popup need not have the same DPI.
+            // Before opening there is no HWND; remeasure against its real scale
+            // once WPF has connected it, and after a size/DPI transition.
+            PresentationSource source_ = PresentationSource.FromVisual(Popup);
+            if (source_ != null && source_.CompositionTarget != null)
+            {
+                Matrix transform_ = source_.CompositionTarget.TransformToDevice;
+                return new Vector(ValidScale(transform_.M11), ValidScale(transform_.M22));
+            }
+            return new Vector(screenScale, screenScale);
+        }
+
+        private void SetPhysicalOrigin(double x, double y)
+        {
+            // WPF's Absolute PlacementRectangle is already in physical screen
+            // coordinates. Offsets, in contrast, are transformed by the popup's
+            // own DPI. Keep them zero rather than dividing by the taskbar DPI.
+            Popup.HorizontalOffset = 0;
+            Popup.VerticalOffset = 0;
+            Popup.PlacementRectangle = new Rect(x, y, 0, 0);
+        }
+
+        private void OnPopupOpened(object sender, RoutedEventArgs eventArgs)
+        {
+            if (!disposed && pendingLabel != null) RefreshContent();
+        }
+
+        private void OnPopupSizeChanged(object sender, SizeChangedEventArgs eventArgs)
+        {
+            if (disposed || !Popup.IsOpen || layoutRefreshPending) return;
+            layoutRefreshPending = true;
+            Popup.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(delegate
+            {
+                layoutRefreshPending = false;
+                if (!disposed && Popup.IsOpen && pendingLabel != null) RefreshContent();
+            }));
         }
 
         public static Rect ComputePopupBounds(Rect ring, Rect bar, Rect screen, Size popupSizePhysical, double scale)
@@ -197,6 +242,8 @@ namespace CodexQuota
             Close();
             showTimer.Tick -= OnShowTimer;
             UiTheme.ThemeChanged -= OnThemeChanged;
+            Popup.Opened -= OnPopupOpened;
+            Popup.SizeChanged -= OnPopupSizeChanged;
             Popup.Content = null;
             disposed = true;
         }
